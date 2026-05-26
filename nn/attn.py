@@ -103,7 +103,7 @@ class MultiHeadAttn(nn.Module):
 
         instead there's a better way -'''
 
-        out = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal) # (B, n_head, T, T)
+        out = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal) # (B, n_head, T, head_size)
         out = out.transpose(1, 2).contiguous().view(B, T, C)
         out = self.c_proj(out) # (B, T, C)
         return out
