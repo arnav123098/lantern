@@ -7,7 +7,7 @@ Learning rate (LR) drops slowly and smootly like cosine curve for a defined phas
 def cosine_decay(
     config: dotdict,
     it: int
-    ):
+):
     # ramp up linearly
     if it < config.warmup_steps:
         lr = config.max_lr * (it + 1) / config.warmup_steps
