@@ -6,7 +6,7 @@ Adam builds on RMSProp and combines first moment (m) with second moment (v).
 - update = m/v
 - m is the exponential moving average or weighted mean of gradients and v is the exponential mean squared
 - initially, in both first and second moments, there's a bias toward 0; adam fixes this by using bias correction - multiply by (1 - beta2 * step)/(1 - beta1 * step)
-- for some loss functions, amsgrad is needed to ensure convergence; it just keeps track of max second moment and uses it in the denominator of update
+- for some loss functions, amsgrad is needed to ensure convergence; it just keeps track of max second moment and uses it in the denominator of the update
 '''
 class Adam(Optimizer):
     def __init__(
