@@ -56,7 +56,7 @@ class Adam(Optimizer):
 
                 # update first moment
                 m_buf = state.setdefault('m_buf', torch.zeros_like(p))
-                m_buf.mul_(beta1).add(grad, alpha=(1 - beta1))
+                m_buf.mul_(beta1).add_(grad, alpha=(1 - beta1))
 
                 # update second moment
                 v_buf = state.setdefault('v_buf', torch.zeros_like(p))
