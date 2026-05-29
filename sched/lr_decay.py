@@ -17,7 +17,7 @@ def cosine_decay(
         lr = config.min_lr
 
     # cosine decay between warmup_steps and max_steps
-    decay_ratio = (it - config.warmup_steps) / (config.max_steps - config.warnup_steps)
+    decay_ratio = (it - config.warmup_steps) / (config.max_steps - config.warmup_steps)
     decay_ratio = min(max(decay_ratio, 0), 1)
     assert 0 <= decay_ratio <= 1 # the line above holds this assertion
 
