@@ -22,7 +22,7 @@ class TextLoaderLite:
         enc = tiktoken.get_encoding(model)
         tokens = enc.encode(text)
         self.tokens = torch.tensor(tokens)
-        train_split_len = self.tokens.size(-1) * (1 - val_split)
+        train_split_len = int(self.tokens.size(-1) * (1 - val_split))
 
         # create splits
         self.train = self.tokens[:train_split_len]
