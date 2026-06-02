@@ -49,6 +49,8 @@ class BasicTrainer: # monolithic
         self.model = torch.compile(self.model)
         self.get_lr = config.lr_scheduler
 
+        self.step = 0 # step state
+
     def train(self):
         for step in range(self.config.max_steps):
             t0 = time.time()
@@ -84,6 +86,8 @@ class BasicTrainer: # monolithic
             self.optimizer.step()
 
             torch.cuda.synchronize() # wait for the GPU to finish work
+
+            self.step = step
 
             # metrics
             t1 = time.time()

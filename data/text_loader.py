@@ -1,10 +1,11 @@
 import tiktoken
 import torch
+from dataloader import DataLoader
 
 '''
 The simplest dataloader: load text from a file and create train and val splits; track current position and update when returning a B x T tensor as the current batch.
 '''
-class TextLoaderLite:
+class TextLoaderLite(DataLoader):
     def __init__(
         self,
         batch_size: int,
@@ -13,6 +14,8 @@ class TextLoaderLite:
         model: str,
         val_split: int=0
     ):
+        super().__init__()
+
         self.B = batch_size
         self.T = block_size
 
@@ -33,6 +36,8 @@ class TextLoaderLite:
 
         self.train_curr_pos = 0
         self.val_curr_pos = 0
+
+        self.state_keys = ('train_curr_pos', 'val_curr_pos')
 
     def next_batch(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         step = self.B * self.T + 1
