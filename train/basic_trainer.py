@@ -1,6 +1,7 @@
 from utils import dotdict
 import torch
 import time
+from metrics.metrics import Metrics
 
 '''
 This trainer takes a model, tokenizer, dataloader, lr_scheduler and optimizer and does the following:
@@ -13,6 +14,8 @@ This trainer takes a model, tokenizer, dataloader, lr_scheduler and optimizer an
 
 *This one is kinda tightly coupled - dataloader, training and validation etc. are handled by the trainer.
 Later ones will be a lot more modular and framework style.
+
+update: added metrics
 '''
 class BasicTrainer: # monolithic
     def __init__(self, config): # TODO: add assertions for config
@@ -50,6 +53,8 @@ class BasicTrainer: # monolithic
         self.get_lr = config.lr_scheduler
 
         self.step = 0 # step state
+
+        self.metrics = Metrics()
 
     def train(self):
         for step in range(self.config.max_steps):
@@ -97,6 +102,26 @@ class BasicTrainer: # monolithic
               tokens_processed *= 2
             tokens_per_sec = tokens_processed / dt
 
+            if step == 0:
+                variables = {
+                    'loss': lambda: loss_accum,
+                    'lr': lambda: lr,
+                    'norm': lambda: norm,
+                    'val_loss': lambda: val_loss_accum,
+                    'tokens_processed': lambda: tokens_processed,
+                    'tokens_per_sec': lambda: tokens_per_sec
+                }
+                self.metrics.track({
+                    k: v
+                    for k, v in variables.items()
+                    if k in self.config.metrics
+                })
+
+                if self.config.extra_metrics is not None:
+                    self.metrics.track(self.config.extra_metrics)
+
+            self.metrics.record()
+
             print(f"step {step:4d} || loss: {loss_accum:.6f} | {f'val_loss: {val_loss_accum:.6f} |' if self.is_val else ''}lr {lr:.8f} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
 
 '''
@@ -120,6 +145,10 @@ config = {
     'filepath': 'input.txt',
     'val_split': 0.3,
     'is_val': True,
+    'metrics': ['loss', 'val_loss'],
+    'extra_metrics': {
+        'wte_norm': lambda: model.wte.weights.norm()
+    }
 }
 
 tr = BasicTrainer(config)
