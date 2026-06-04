@@ -78,7 +78,7 @@ class GPT2(nn.Module):
 
         return logits, loss
     
-    @torch.no_grad
+    @torch.no_grad()
     def generate(
         self,
         x: torch.Tensor, # x is B x T
