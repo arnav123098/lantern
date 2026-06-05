@@ -1,4 +1,5 @@
-from abc import ABC, abstractmethod
+from abc import ABC
+from downloader import Downloader
 
 '''
 Dataloader base class
@@ -8,10 +9,7 @@ class DataLoader(ABC):
         super().__init__()
 
         self.state_keys = ()
-
-    @abstractmethod
-    def next_batch(self):
-        pass
+        self.downloader = Downloader()
 
     def state_dict(self):
         state_dict = {
