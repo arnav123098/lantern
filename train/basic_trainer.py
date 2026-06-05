@@ -24,6 +24,8 @@ class BasicTrainer: # monolithic
         self.model = config.model
 
         self.is_val = config.get('is_val', False)
+        self.val_interval = config.get('val_interval', 1)
+        self.val_batch_size = config.get('val_batch_size', config.batch_size)
 
         # auto-detect device
         device = "cpu"
@@ -67,22 +69,27 @@ class BasicTrainer: # monolithic
 
             # simulating batch_size
             for _ in range(self.grad_accum_steps):
-                train_X, train_Y, val_X, val_Y = self.dataloader.next_batch()
+                train_X, train_Y = self.dataloader.next_train_batch()
                 train_X, train_Y = train_X.to(self.device), train_Y.to(self.device)
-                logits, loss = self.model(train_X, targets=train_Y)
+                _, loss = self.model(train_X, targets=train_Y)
                 loss /= self.grad_accum_steps # divide to get correct loss for simulated batch_size
                 loss_accum += loss.detach()
                 loss.backward()
-
-                # validation (TODO: make it decoupled)
-                if self.is_val:
-                  with torch.no_grad():
-                    val_X, val_Y = val_X.to(self.device), val_Y.to(self.device)
-                    val_logits, val_loss = self.model(val_X, targets=val_Y)
-                    val_loss /= self.grad_accum_steps
-                    val_loss_accum += val_loss.detach()
                     
             norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+
+            val_step = self.is_val and step % self.val_interval == 0
+
+            # validation
+            self.model.eval()
+            if val_step:
+                with torch.no_grad():
+                    val_X, val_Y = self.dataloader.next_val_batch()
+                    val_X, val_Y = val_X.to(self.device), val_Y.to(self.device)
+                    _, val_loss = self.model(val_X, targets=val_Y)
+                    val_loss /= self.grad_accum_steps
+                    val_loss_accum += val_loss.detach()
+            self.model.train()
 
             # update params
             lr = self.get_lr(self.config, step)
@@ -97,9 +104,10 @@ class BasicTrainer: # monolithic
             # metrics
             t1 = time.time()
             dt = t1 - t0
-            tokens_processed = self.dataloader.B * self.dataloader.T * self.grad_accum_steps
-            if self.is_val:
-              tokens_processed *= 2
+            tokens_processed = self.config.B * self.config.T * self.grad_accum_steps
+            if val_step:
+              val_tokens_processed = self.config.val_batch_size * self.config.T * self.grad_accum_steps
+              tokens_processed += val_tokens_processed
             tokens_per_sec = tokens_processed / dt
 
             if step == 0:
@@ -145,6 +153,8 @@ config = {
     'filepath': 'input.txt',
     'val_split': 0.3,
     'is_val': True,
+    'val_interval': 10,
+    'val_batch_size': 16,
     'metrics': ['loss', 'val_loss'],
     'extra_metrics': {
         'wte_norm': lambda: model.wte.weights.norm()
