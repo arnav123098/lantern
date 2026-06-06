@@ -56,7 +56,8 @@ class GPT2(nn.Module):
     def forward(
         self,
         idx: torch.Tensor, # idx is B x T
-        targets: torch.Tensor = None
+        targets: torch.Tensor = None,
+        attn_mask: torch.Tensor = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         T = idx.size(-1)
         assert T <= self.config.block_size, f"Cannot forward sequence of long length {T} while block size is only {self.config.block_size}"
@@ -67,7 +68,7 @@ class GPT2(nn.Module):
         x = pos_emb + tok_emb
 
         for h in self.transformer.h:
-            x = h(x)
+            x = h(x, attn_mask)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x) # (B, T, vocab_size)
 
@@ -110,8 +111,8 @@ class Block(nn.Module):
         self.ln_2 = nn.LayerNorm(config.n_embd)
         self.mlp = MLP(config)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.ln_1(x)) # we are using pre-layer-norm here
+    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None) -> torch.Tensor:
+        x = x + self.attn(self.ln_1(x), attn_mask) # we are using pre-layer-norm here
         x = x + self.mlp(self.ln_2(x))
         return x
     
