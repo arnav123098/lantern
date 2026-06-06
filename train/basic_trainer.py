@@ -104,9 +104,9 @@ class BasicTrainer: # monolithic
             # metrics
             t1 = time.time()
             dt = t1 - t0
-            tokens_processed = self.config.B * self.config.T * self.grad_accum_steps
+            tokens_processed = self.config.B * self.config.block_size * self.grad_accum_steps
             if val_step:
-              val_tokens_processed = self.config.val_batch_size * self.config.T * self.grad_accum_steps
+              val_tokens_processed = self.config.val_batch_size * self.config.block_size * self.grad_accum_steps
               tokens_processed += val_tokens_processed
             tokens_per_sec = tokens_processed / dt
 
@@ -157,7 +157,7 @@ config = {
     'val_batch_size': 16,
     'metrics': ['loss', 'val_loss'],
     'extra_metrics': {
-        'wte_norm': lambda: model.wte.weights.norm()
+        'wte_norm': lambda: model.transformer.wte.weight.norm()
     }
 }
 
