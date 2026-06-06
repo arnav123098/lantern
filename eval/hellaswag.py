@@ -12,13 +12,13 @@ What this does:
 - apply completion mask
 - get the lowest loss and calculate accuracy
 
-TODO: testing
-TODO (for later): attn_mask 
+TODO (for later): attn_mask, progress bar
 '''
 class Hellaswag(Benchmark):
     def __init__(self, config: dotdict):
         super().__init__(config)
         self.loader = HellaswagLoader(config)
+        self.device = config.device if config.device is not None else 'cpu'
 
     @torch.no_grad()
     def evaluate(self) -> float:
@@ -30,7 +30,10 @@ class Hellaswag(Benchmark):
             if batch is None: break
 
             X, Y = batch['batch']
+            X, Y = X.to(self.device), Y.to(self.device)
+
             mask = batch['mask']
+            mask = mask.to(self.device)
 
             B, C, T = X.shape
             X = X.view(B * C, T)
@@ -42,7 +45,7 @@ class Hellaswag(Benchmark):
             targets = X[:, 1:]
 
             loss = F.cross_entropy(
-                logits.reshape(-1, self.config.vocab_size),
+                logits.reshape(-1, self.model.config.vocab_size),
                 targets.reshape(-1),
                 reduction='none'
             )
@@ -55,5 +58,19 @@ class Hellaswag(Benchmark):
 
             acc += (preds == Y).sum().item()
 
-            accuracy = acc / len(self.loader)
-            return accuracy
+        accuracy = acc / len(self.loader)
+        return accuracy
+
+'''
+Usage:
+config = dotdict({
+    'model': model,
+    'batch_size': 64,
+    'tokenizer': tokenizer,
+    'pad_token': pad_token_idx,
+    'device': device
+})
+
+h = Hellaswag(config)
+h.evaluate()
+'''
