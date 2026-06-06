@@ -1,4 +1,5 @@
 import torch
+from abc import ABC
 
 '''
 The Optimizer base class does the following:
@@ -6,7 +7,7 @@ The Optimizer base class does the following:
 - set defaults such as lr, momentum etc. in groups where it's not user defined
 - manage a state to store info about a particular param
 '''
-class Optimizer: # Base class for optimizers
+class Optimizer(ABC): # Base class for optimizers
     def __init__(
         self,
         params, 
