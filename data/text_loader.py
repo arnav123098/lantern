@@ -12,7 +12,7 @@ class TextLoaderLite(DataLoader):
     ):
         super().__init__()
 
-        self.B = config.batch_size
+        self.B = config.batch_size if config.B is None else config.B
         self.T = config.block_size
 
         self.val_B = config.val_batch_size

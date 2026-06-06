@@ -18,7 +18,7 @@ Later ones will be a lot more modular and framework style.
 update: added metrics
 '''
 class BasicTrainer: # monolithic
-    def __init__(self, config): # TODO: add assertions for config
+    def __init__(self, config): # TODO: maybe add assertions for config
         config = dotdict(config)
         self.config = config
         self.model = config.model
@@ -130,7 +130,7 @@ class BasicTrainer: # monolithic
 
             self.metrics.record()
 
-            print(f"step {step:4d} || loss: {loss_accum:.6f} | {f'val_loss: {val_loss_accum:.6f} |' if self.is_val else ''}lr {lr:.8f} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
+            print(f"step {step:4d} || loss: {loss_accum:.6f} | {f'val_loss: {val_loss_accum:.6f} |' if val_step else ''}lr {lr:.8f} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
 
 '''
 Example usage:
@@ -149,7 +149,7 @@ config = {
     'max_steps': 500,
     'batch_size': 2**14,
     'B': 4,
-    'T': 512,
+    'block_size': 512,
     'filepath': 'input.txt',
     'val_split': 0.3,
     'is_val': True,

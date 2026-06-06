@@ -3,8 +3,6 @@ import torch
 '''
 - saves training state
 - loads state to resume training
-
-TODO: testing
 '''
 class Checkpoint:
     @staticmethod
