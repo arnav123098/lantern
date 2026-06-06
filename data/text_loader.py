@@ -20,8 +20,7 @@ class TextLoaderLite(DataLoader):
         # load tokens
         with open(config.filepath, 'r') as f:
             text = f.read()
-        enc = tiktoken.get_encoding(config.model)
-        tokens = enc.encode(text)
+        tokens = config.tokenizer.encode(text)
         self.tokens = torch.tensor(tokens)
         train_split_len = int(self.tokens.size(-1) * (1 - config.val_split))
 
