@@ -3,6 +3,10 @@ import requests
 from tqdm import tqdm
 import os
 
+'''
+This Downloader class is really helpful for dataloaders as they need the dataset downloaded before loading tensors.
+There are some really simple methods implemented using the Path lib and the most important one i.e. download is the one we need to pay attention to.
+'''
 class Downloader:
     PATH = Path.home() / '.lantern' / 'datasets'
 
@@ -13,7 +17,7 @@ class Downloader:
     @staticmethod
     def download(url: str, dir_name: str = '', filename: str = None):
         os.makedirs(Downloader.PATH, exist_ok=True)
-        res = requests.get(url, stream=True)
+        res = requests.get(url, stream=True) # get dataset from url
         res.raise_for_status()
 
         total_size = int(res.headers.get('content-length', 0))
@@ -34,14 +38,14 @@ class Downloader:
             unit_scale=True,
             unit_divisor=1024,
             desc=Path(filepath).name
-        ) as pbar:
+        ) as pbar: # stream response and show progress bar
             for chunk in res.iter_content(chunk_size=chunk_size):
                 f.write(chunk)
                 pbar.update(len(chunk))
 
     @staticmethod
-    def extract(filepath) -> None: pass # TODO: for later (right now, hellaswag doesn't need it but larger datasets will need it)
-
-    @staticmethod
     def exists(filepath: str) -> bool: # expects filepath with its dir
         return (Path(Downloader.PATH) / Path(filepath)).exists()
+
+    @staticmethod
+    def extract(filepath) -> None: pass # TODO: for later (right now, hellaswag doesn't need it but larger datasets will need it)
