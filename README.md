@@ -6,10 +6,13 @@
 ███████╗██║  ██║██║ ╚████║   ██║   ███████╗██║  ██║██║ ╚████║
 ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝
 </pre>
-UPDATE:
-The basic model (GPT2), dataloading, training, metrics and plots, checkpointing and eval implementations; long story short, a comprehensive, basic training stack is already done. Lantern has also got many optimizer implementations.
-Next steps: Inspiration from Andrej's nanochat - ddp, performance bench and a lot more stuff.
+### v1: GPT 2/3 era (done)
+GPT2, dataloading, training, metrics and plots, checkpointing, loading weights, basic inference and hellaswag eval; long story short, a comprehensive, basic training stack. Lantern has also got many optimizer implementations including SGD (+ momentum), RMSProp, Adam, AdamW and Lion.
 
+### v2: Llama era (building)
+
+---
+---
 i plan to build this out slowly over a month or two <br>
 this is gonna be for my learning as well as to serve as a nice educational resource
 

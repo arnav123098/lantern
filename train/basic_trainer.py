@@ -1,7 +1,7 @@
-from utils import dotdict
+from lantern.utils import dotdict
 import torch
 import time
-from metrics.metrics import Metrics
+from lantern.metrics import Metrics
 
 '''
 This trainer takes a model, tokenizer, dataloader, lr_scheduler and optimizer and does the following:
