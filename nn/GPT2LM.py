@@ -99,6 +99,69 @@ class GPT2(nn.Module):
             xcol = torch.gather(topk_idx, -1, ix)
             x = torch.cat((x, xcol), dim=1)
         return x
+    
+    '''
+    This from_pretrained method is used to load weights from a pretrained gpt2 from huggingface. This implementation closely follows Karpathy's implementation in NanoGPT. 
+    '''
+    @classmethod
+    def from_pretrained(cls, model_type, override_args=None):
+        assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
+
+        override_args = override_args or {} 
+        assert all(k == 'dropout' for k in override_args) # allow only dropout to be overridden
+
+        from transformers import GPT2LMHeadModel
+        print("loading weights from pretrained gpt: %s" % model_type)
+
+        # set config
+        config_args = {
+            'gpt2':         dict(n_layer=12, n_head=12, n_embd=768),  # 124M params
+            'gpt2-medium':  dict(n_layer=24, n_head=16, n_embd=1024), # 350M params
+            'gpt2-large':   dict(n_layer=36, n_head=20, n_embd=1280), # 774M params
+            'gpt2-xl':      dict(n_layer=48, n_head=25, n_embd=1600), # 1558M params
+        }[model_type]
+
+        config_args['vocab_size'] = 50257
+        config_args['block_size'] = 1024
+        config_args['bias'] = True
+
+        if 'dropout' in override_args: # override dropout
+            print(f"overriding dropout rate to {override_args['dropout']}")
+            config_args['dropout'] = override_args['dropout']
+
+        # make model
+        config = GPTConfig(**config_args)
+        model = cls(config)
+
+        # get state_dict
+        sd = model.state_dict()
+        sd_keys = [k for k in sd.keys() if not k.endswith('.attn.bias')] # remove mask from params
+
+        # load model from huggingface and get state_dict
+        hf_model = GPT2LMHeadModel.from_pretrained(model_type)
+        hf_sd = hf_model.state_dict()
+        hf_sd_keys = [k for k in hf_sd.keys() if not (k.endswith('.attn.bias') or k.endswith('.attn.masked_bias'))]
+
+        # OpenAI checkpoints use "Conv1D" module.
+        # Pytorch stores w as (out_features, in_features) and does x @ w.T but GPT2's Conv1D does x @ w so we need to transpose these weights before copying them.
+        transposed = ['attn.c_attn.weight', 'attn.c_proj.weight', 'mlp.c_fc.weight', 'mlp.c_proj.weight']
+
+        assert len(hf_sd_keys) == len(sd_keys), f"mismatched keys: {len(hf_sd_keys)} != {len(sd_keys)}"
+
+        # copying params
+        for k in hf_sd_keys:
+            if any(k.endswith(w) for w in transposed):
+                # weights to transpose
+                assert hf_sd[k].shape[::-1] == sd[k].shape
+                with torch.no_grad():
+                    sd[k].copy_(hf_sd[k].t())
+            else:
+                # vanilla copy
+                assert hf_sd[k].shape == sd[k].shape
+                with torch.no_grad():
+                    sd[k].copy_(hf_sd[k])
+
+        return model
 
 '''
 GPT has many units or blocks which are just attn followed by mlp/feed-forward.
