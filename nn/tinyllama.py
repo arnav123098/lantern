@@ -35,8 +35,7 @@ class TinyLlama(nn.Module):
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        # weight-sharing
-        self.lm_head.weight = self.transformer.wte.weight
+        # tinyllama 1.1B doesn't share weights between wte and lm_head
 
         self.apply(self._init_weights)
 
