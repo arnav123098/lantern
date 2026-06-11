@@ -43,10 +43,10 @@ class FastSwiGLU(nn.Module):
     ):
         super().__init__()
 
-        self.fc = nn.Linear(fan_in, 2 * fan_out, bias)
+        self.gatexvalue = nn.Linear(fan_in, 2 * fan_out, bias)
         self.out_proj = nn.Linear(fan_out, fan_in, bias)
 
     def forward(self, x: torch.Tensor):
-        gate, value = self.fc(x).chunk(2, dim=-1)
+        gate, value = self.gatexvalue(x).chunk(2, dim=-1)
         x = F.silu(gate) * value
         return self.out_proj(x)

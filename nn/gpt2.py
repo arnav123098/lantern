@@ -111,7 +111,7 @@ class GPT2(nn.Module):
         assert all(k == 'dropout' for k in override_args) # allow only dropout to be overridden
 
         from transformers import GPT2LMHeadModel
-        print("loading weights from pretrained gpt: %s" % model_type)
+        print(f"loading weights from pretrained gpt: {model_type}")
 
         # set config
         config_args = {

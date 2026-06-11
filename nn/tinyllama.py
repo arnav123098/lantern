@@ -6,7 +6,9 @@ from nn.swiglu import FastSwiGLU
 from nn.rope import RoPE
 import math
 
-# TODO: add documentation; weight-loading and inference test
+# TODO: add documentation
+# idea: make a wrapper for nn.Module to abstract out stuff like num_params, num_grad_params etc. and building blocks to build different models to make the whole build take way less lines and look cleaner
+
 @dataclass
 class TinyLlamaConfig:
     block_size: int = 2048
@@ -28,10 +30,10 @@ class TinyLlama(nn.Module):
         super().__init__()
         self.config = config
 
-        self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(config.vocab_size, config.n_embd),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = nn.RMSNorm(config.n_embd, eps=config.rms_norm_eps)
+        self.model = nn.ModuleDict(dict(
+            embed_tokens = nn.Embedding(config.vocab_size, config.n_embd),
+            layers = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            norm = nn.RMSNorm(config.n_embd, eps=config.rms_norm_eps)
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
@@ -74,10 +76,10 @@ class TinyLlama(nn.Module):
         T = idx.size(-1)
         assert T <= self.config.block_size, f"Cannot forward sequence of long length {T} while block size is only {self.config.block_size}"
 
-        x = self.transformer.wte(idx)
-        for h in self.transformer.h:
+        x = self.model.embed_tokens(idx)
+        for h in self.model.layers:
             x = h(x)
-        x = self.transformer.ln_f(x)
+        x = self.model.norm(x)
         logits = self.lm_head(x) # (B, T, vocab_size)
 
         if targets is None:
@@ -107,20 +109,72 @@ class TinyLlama(nn.Module):
             xcol = torch.gather(topk_idx, -1, ix)
             x = torch.cat((x, xcol), dim=1)
         return x
+    
+    @classmethod
+    def from_pretrained(cls, checkpoint: str = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"):
+        from transformers import AutoModelForCausalLM
+
+        print(f"loading weights from pretrained tinyllama 1.1B checkpoint: {checkpoint}")
+        model = cls(TinyLlamaConfig)
+
+        hf_model = AutoModelForCausalLM.from_pretrained(checkpoint)
+
+        sd = model.state_dict()
+        sd_keys = sd.keys()
+
+        hf_sd = hf_model.state_dict()
+
+        # copy
+        for k in sd_keys:
+            key = k
+            if 'self_attn.attn' in k:
+                base_key = k.replace('attn.weight', '')
+                hf_attn = torch.cat([hf_sd[f"{base_key}{i}_proj.weight"] for i in ('q', 'k', 'v')], 0)
+                
+                assert hf_attn.shape == sd[k].shape
+
+                with torch.no_grad():
+                    sd[k].copy_(hf_attn)
+
+                continue
+            elif 'mlp.gatexvalue' in k:
+                base_key = k.replace('gatexvalue.weight', '')
+                hf_gatexvalue = torch.cat([hf_sd[f"{base_key}{i}_proj.weight"] for i in ('gate', 'up')], 0)
+
+                assert hf_gatexvalue.shape == sd[k].shape
+
+                with torch.no_grad():
+                    sd[k].copy_(hf_gatexvalue)
+
+                continue
+
+            elif 'self_attn.c_proj' in k:
+                key = k.replace('c_proj', 'o_proj')
+            elif 'mlp.out_proj' in k:
+                key = k.replace('out_proj', 'down_proj')
+
+            assert hf_sd[key].shape == sd[k].shape
+
+            with torch.no_grad():
+                sd[k].copy_(hf_sd[key])
+
+        print("weights loaded!")
+
+        return model
 
 class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.norm_1 = nn.RMSNorm(config.n_embd, eps=config.rms_norm_eps)
-        self.attn = Attn(config)
-        self.norm_2 = nn.RMSNorm(config.n_embd, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = nn.RMSNorm(config.n_embd, eps=config.rms_norm_eps)
+        self.self_attn = Attn(config)
+        self.input_layernorm = nn.RMSNorm(config.n_embd, eps=config.rms_norm_eps)
         self.mlp = FastSwiGLU(config.n_embd, config.intermediate_size, bias=False) # out = config.n_embd
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.norm_1(x))
-        x = x + self.mlp(self.norm_2(x))
+        x = x + self.self_attn(self.input_layernorm(x))
+        x = x + self.mlp(self.post_attention_layernorm(x))
         return x
-    
+
 class Attn(nn.Module): # GQA
     def __init__(
         self,

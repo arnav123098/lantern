@@ -14,6 +14,8 @@ RoPE makes use of this same formula to calculate the rotation angle.
 We just multiply the token's position with the inverse frequency to get the rotation angle or theta.
 
 Then we can get the cos and the sin using this theta and rotate the pairs to create rotary encodings.
+
+This RoPE implementation is Llama style. (more coming soon)
 '''
 class RoPE(nn.Module):
     def __init__(self, head_size: int, rope_theta: float = 10000.0):
@@ -44,15 +46,16 @@ class RoPE(nn.Module):
         cos: torch.Tensor
     ):
         '''
-        We split the features into two parts and then stack them as pairs of (-x2, x1).
-        Then we flatten this to get [-x2, x1, -x4, x3, ...] as the last dim. Let's call this tensor y.
+        In the Llama style implementation, we split the features into two parts and then concat them as pairs of (-x2, x1).
+        This looks like [-x3, -x4, x1, x2].
+        Let's call this tensor y.
         Then we can element-wise multiply x by cos and y by sin and add them.
         This results in the same tensor as in the case of multiplying each pair by the rotation matrix.
         '''
-        x1 = x[..., ::2] # [x1, x3, x5, x7, ...] (B, nh, T, hs // 2)
-        x2 = x[..., 1::2] # [x2, x4, x6, x8, ...] (B, nh, T, hs // 2)
+        x1 = x[..., : self.head_size // 2] # [x3, x4] (B, nh, T, hs // 2)
+        x2 = x[..., self.head_size // 2 :] # [x1, x2] (B, nh, T, hs // 2)
         
-        rotated = torch.stack((-x2, x1), dim=-1).flatten(-2) # # [-x2, x1, -x4, x3, ...] (B, nh, T, hs)
+        rotated = torch.cat((-x2, x1), dim=-1) # [-x3, -x4, x1, x2] (B, nh, T, hs)
         rotated = x * cos + rotated * sin # (B, nh, T, hs)
 
         return rotated
@@ -65,6 +68,7 @@ class RoPE(nn.Module):
 
         theta = self.get_theta(seq_len, device).to(dtype=dtype)
         sin, cos = theta.sin(), theta.cos() # (T, hs // 2)
-        sin, cos = torch.repeat_interleave(sin, 2, dim=-1), torch.repeat_interleave(cos, 2, dim=-1) # (T, hs)
+        cos = torch.cat([cos, cos], dim=-1)
+        sin = torch.cat([sin, sin], dim=-1) # (T, hs)
 
         return self.apply_rope(x, sin, cos) # (B, nh, T, hs)
