@@ -16,12 +16,13 @@ We just multiply the token's position with the inverse frequency to get the rota
 Then we can get the cos and the sin using this theta and rotate the pairs to create rotary encodings.
 '''
 class RoPE(nn.Module):
-    def __init__(self, head_size: int):
+    def __init__(self, head_size: int, rope_theta: float = 10000.0):
         assert head_size % 2 == 0 # works only on even head_size
 
         super().__init__()
 
         self.head_size = head_size # hs
+        self.rope_theta = rope_theta
     
     def get_theta(
         self,
@@ -29,7 +30,7 @@ class RoPE(nn.Module):
         device
     ):
         inv_freq = 1 / (
-            10000 ** (torch.arange(0, self.head_size, 2, device=device).float() / self.head_size)
+            self.rope_theta ** (torch.arange(0, self.head_size, 2, device=device).float() / self.head_size)
         ) # (hs // 2,)
         pos = torch.arange(seq_len, device=device) # (T,)
 
