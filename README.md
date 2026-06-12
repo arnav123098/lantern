@@ -9,7 +9,8 @@
 ### v1: GPT 2/3 era (done)
 GPT2, dataloading, training, metrics and plots, checkpointing, loading weights, basic inference and hellaswag eval; long story short, a comprehensive, basic training stack. Lantern has also got many optimizer implementations including SGD (+ momentum), RMSProp, Adam, AdamW and Lion.
 
-### v2: Llama era (building)
+### v2: Llama era (ongoing)
+Tinyllama implemented and tested (RoPE, GQA and MQA), Muon and MuonW optimizers
 
 ---
 ---
