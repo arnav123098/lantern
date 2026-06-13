@@ -58,7 +58,7 @@ class TextLoaderLite(DataLoader):
         return train_X, train_Y
 
     def next_val_batch(self) -> tuple[torch.Tensor, torch.Tensor]:
-        step = self.val_B * self.T + 1
+        step = self.val_B * self.T + 2
         end_pos = self.val_curr_pos + step
 
         if self.val_curr_pos + step > self.val_len:

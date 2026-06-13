@@ -1,5 +1,5 @@
 from abc import ABC
-from downloader import Downloader
+from lantern.data.downloader import Downloader
 
 '''
 Dataloader base class
