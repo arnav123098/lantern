@@ -1,4 +1,3 @@
-from lantern.utils import dotdict
 import math
 
 '''
