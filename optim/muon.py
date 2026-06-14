@@ -1,5 +1,7 @@
-from optimizer import Optimizer
+from lantern.optim.optimizer import Optimizer
 import torch
+
+# This file contains both Muon and MuonW optimizers
 
 # TODO: optimizations to make this even faster
 

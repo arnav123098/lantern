@@ -2,10 +2,10 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from nn.attn import MultiHeadAttn
+from lantern.nn.attn import MultiHeadAttn
 
 @dataclass
-class GPTConfig:
+class GPT2Config:
     block_size: int = 1024 # max sequence length
     vocab_size: int = 50257 # number of tokens: 50,000 BPE merges + 256 bytes tokens + 1 <|endoftext|> token
     n_layer: int = 12 # number of layers
@@ -21,7 +21,7 @@ GPT in a nutshell:
 - now the last dim can be softmax-ed to form probabilites
 '''
 class GPT2(nn.Module):
-    def __init__(self, config: GPTConfig):
+    def __init__(self, config: GPT2Config):
         super().__init__()
         self.config = config
 
@@ -130,7 +130,7 @@ class GPT2(nn.Module):
             config_args['dropout'] = override_args['dropout']
 
         # make model
-        config = GPTConfig(**config_args)
+        config = GPT2Config(**config_args)
         model = cls(config)
 
         # get state_dict
@@ -162,12 +162,35 @@ class GPT2(nn.Module):
                     sd[k].copy_(hf_sd[k])
 
         return model
+    
+    # same as Andrej's configure_optimizers method in nanogpt (PS: i'll make this stuff cleaner soon)
+    def configure_optimizers(self, weight_decay, learning_rate, device):
+        # start with all of the candidate parameters
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        # filter out those that do not require grad
+        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
+        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        optim_groups = [
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': nodecay_params, 'weight_decay': 0.0}
+        ]
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
+        print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
+        from lantern.optim.adam import AdamW
+        optimizer = AdamW(optim_groups, lr=learning_rate, weight_decay=weight_decay)
+
+        return optimizer
 
 '''
 GPT has many units or blocks which are just attn followed by mlp/feed-forward.
 '''
 class Block(nn.Module):
-    def __init__(self, config: GPTConfig):
+    def __init__(self, config: GPT2Config):
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.n_embd)
         self.attn = MultiHeadAttn(config, is_causal=True)
@@ -183,7 +206,7 @@ class Block(nn.Module):
 A straightforward and simple feed-forward layer that follows attn
 '''
 class MLP(nn.Module):
-    def __init__(self, config: GPTConfig):
+    def __init__(self, config: GPT2Config):
         super().__init__()
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd)
         self.gelu = nn.GELU()

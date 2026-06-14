@@ -1,5 +1,5 @@
 from abc import ABC
-from lantern.data.downloader import Downloader
+from lantern.data.prep.dataset_manager import datasets
 
 '''
 Dataloader base class
@@ -9,7 +9,7 @@ class DataLoader(ABC):
         super().__init__()
 
         self.state_keys = ()
-        self.downloader = Downloader()
+        self.datasets = datasets()
 
     def state_dict(self):
         state_dict = {

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils import dotdict
+from lantern.utils import dotdict
 
 # SelfAttn and MultiHeadAttn are GPT 2 and 3 style
 '''
@@ -109,7 +109,7 @@ class MultiHeadAttn(nn.Module):
         return out
 
 '''
-Group Query Attention (GQA) is the same as MHA except that key and value heads are actually lesser in number compared to query heads to save memory. We divide the kv heads into n_kv_head groups and when calculating attn scores, duplicate the heads across the dim 1 i.e. n_head dim. This way, one kv head is shared across n_head // n_kv_head query heads.
+Grouped Query Attention (GQA) is the same as MHA except that key and value heads are actually lesser in number compared to query heads to save memory. We divide the kv heads into n_kv_head groups and when calculating attn scores, duplicate the heads across the dim 1 i.e. n_head dim. This way, one kv head is shared across n_head // n_kv_head query heads.
 Setting n_kv_head to one creates just one kv head that is used for all query heads making this MQA or Multi Query Attention which saves a lot of resources at the cost of model performance.
 GQA with a setting like n_kv_head = 8 for 32 query heads can be a nice tradeoff that gives MHA level performance and also saves like MQA. 
 '''
@@ -117,7 +117,8 @@ class GroupedQueryAttn(nn.Module):
     def __init__(
         self,
         config: dotdict,
-        is_causal: bool = False
+        is_causal: bool = False,
+        pos_emb = None
     ):
         super().__init__()
 
@@ -139,6 +140,8 @@ class GroupedQueryAttn(nn.Module):
 
         self.is_causal = is_causal
 
+        self.pos_emb = pos_emb
+
     def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None) -> torch.Tensor:
         B, T, C = x.size()
 
@@ -149,12 +152,19 @@ class GroupedQueryAttn(nn.Module):
         k = k.view(B, T, self.n_kv_head, self.head_size).transpose(1, 2)
         v = v.view(B, T, self.n_kv_head, self.head_size).transpose(1, 2)
 
-        k = torch.repeat_interleave(k, self.n_head // self.n_kv_head, dim=1)
-        v = torch.repeat_interleave(v, self.n_head // self.n_kv_head, dim=1)
+        '''
+            We are setting enable_gqa to True because torch internals can handle stuff more efficiently. If we didn't want to use that, we'd have to write -
 
-        out = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal, attn_mask=attn_mask) # (B, n_head, T, head_size)
+            k = torch.repeat_interleave(k, self.n_head // self.n_kv_head, dim=1)
+            v = torch.repeat_interleave(v, self.n_head // self.n_kv_head, dim=1)
+        '''
+
+        if self.pos_emb is not None: # optionally supports positional encodings like RoPE and its variants
+            q, k = self.pos_emb(q), self.pos_emb(k)
+
+        out = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal, attn_mask=attn_mask, enable_gqa=True) # (B, n_head, T, head_size)
         # NOTE: F.scaled_dot_product_attention itself supports gqa internally using the enable_gpa argument
-        # this let's us skip the repeat_interleave steps
+        # this lets us skip the repeat_interleave steps
         
         out = out.transpose(1, 2).contiguous().view(B, T, C)
         out = self.c_proj(out) # (B, T, C)

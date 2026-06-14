@@ -18,13 +18,15 @@ Then we can get the cos and the sin using this theta and rotate the pairs to cre
 This RoPE implementation is Llama style. (more coming soon)
 '''
 class RoPE(nn.Module):
-    def __init__(self, head_size: int, rope_theta: float = 10000.0):
+    def __init__(self, head_size: int, rope_theta: float = 10000.0, llama_style: bool = False):
         assert head_size % 2 == 0 # works only on even head_size
 
         super().__init__()
 
         self.head_size = head_size # hs
         self.rope_theta = rope_theta
+
+        self.llama_style = llama_style
     
     def get_theta(
         self,
@@ -45,20 +47,32 @@ class RoPE(nn.Module):
         sin: torch.Tensor,
         cos: torch.Tensor
     ):
-        '''
-        In the Llama style implementation, we split the features into two parts and then concat them as pairs of (-x2, x1).
-        This looks like [-x3, -x4, x1, x2].
-        Let's call this tensor y.
-        Then we can element-wise multiply x by cos and y by sin and add them.
-        This results in the same tensor as in the case of multiplying each pair by the rotation matrix.
-        '''
-        x1 = x[..., : self.head_size // 2] # [x3, x4] (B, nh, T, hs // 2)
-        x2 = x[..., self.head_size // 2 :] # [x1, x2] (B, nh, T, hs // 2)
-        
-        rotated = torch.cat((-x2, x1), dim=-1) # [-x3, -x4, x1, x2] (B, nh, T, hs)
-        rotated = x * cos + rotated * sin # (B, nh, T, hs)
+        if self.llama_style:
+            '''
+            In the Llama style implementation, we split the features into two parts and then concat them as pairs of (-x2, x1).
+            This looks like [-x3, -x4, x1, x2].
+            Let's call this tensor y.
+            Then we can element-wise multiply x by cos and y by sin and add them.
+            This results in the same tensor as in the case of multiplying each pair by the rotation matrix.
+            '''
+            x1 = x[..., : self.head_size // 2] # [x3, x4] (B, nh, T, hs // 2)
+            x2 = x[..., self.head_size // 2 :] # [x1, x2] (B, nh, T, hs // 2)
+            
+            rotated = torch.cat((-x2, x1), dim=-1) # [-x3, -x4, x1, x2] (B, nh, T, hs)
+            rotated = x * cos + rotated * sin # (B, nh, T, hs)
 
-        return rotated
+            return rotated
+        else:
+            '''
+            In other models like GPTNeoX, y looks like [-x2, x1, -x4, x3]. The math is identical. This difference in Llama is just because of lineage.
+            '''
+            x1 = x[..., 1::2]
+            x2 = x[..., ::2]
+
+            rotated = torch.stack((-x2, x1), dim=-1).flatten(-2) # stack creates a new dim so we need to flatten it back
+            rotated = x * cos + rotated * sin
+
+            return rotated
 
     def forward(self, x: torch.Tensor):
         device = x.device

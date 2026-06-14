@@ -1,5 +1,6 @@
 import torch
 
+# super basic inference for now (gonna upgrade it later)
 class Generate:
     def __init__(self, model, tokenizer):
         self.model = model

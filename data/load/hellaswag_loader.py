@@ -1,7 +1,7 @@
 import torch
-from dataloader import DataLoader
+from lantern.data.load.dataloader import DataLoader
 import json
-from utils import dotdict
+from lantern.utils import dotdict
 
 '''
 The HellaswagLoader will be used to evaluate the model on the Hellaswag benchmark. We need to download the val dataset of hellaswag.
@@ -13,15 +13,15 @@ class HellaswagLoader(DataLoader):
 
         self.path = 'hellaswag/hellaswag_val.jsonl'
 
-        if not self.downloader.exists(self.path):
-            self.downloader.download(
+        if not self.datasets.exists(self.path):
+            self.datasets.download(
                 'https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_val.jsonl',
                 'hellaswag',
                 'hellaswag_val.jsonl'
             )
             
         self.examples = []
-        with open(self.downloader.get_path(self.path)) as f:
+        with open(self.datasets.get_path(self.path)) as f:
             for line in f:
                 self.examples.append(json.loads(line))
                 '''

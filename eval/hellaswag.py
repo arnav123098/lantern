@@ -1,6 +1,6 @@
-from benchmark import Benchmark
-from data.hellaswag_loader import HellaswagLoader
-from utils import dotdict
+from lantern.eval.benchmark import Benchmark
+from lantern.data.load.hellaswag_loader import HellaswagLoader
+from lantern.utils import dotdict
 import torch.nn.functional as F
 import torch
 

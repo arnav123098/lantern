@@ -1,4 +1,4 @@
-from optimizer import Optimizer
+from lantern.optim.optimizer import Optimizer
 import torch
 
 '''

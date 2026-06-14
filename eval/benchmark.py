@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from utils import dotdict
+from lantern.utils import dotdict
 
 '''
 For now this a very simple base class for benchmark evaluators.

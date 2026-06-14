@@ -2,8 +2,9 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from nn.swiglu import FastSwiGLU
-from nn.rope import RoPE
+from lantern.nn.swiglu import FastSwiGLU
+from lantern.nn.rope import RoPE
+from lantern.nn.attn import GroupedQueryAttn
 import math
 
 # TODO: add documentation
@@ -166,7 +167,7 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.post_attention_layernorm = nn.RMSNorm(config.n_embd, eps=config.rms_norm_eps)
-        self.self_attn = Attn(config)
+        self.self_attn = GroupedQueryAttn(config, is_causal=True, pos_emb=RoPE(config.n_embd // config.n_head, llama_style=True))
         self.input_layernorm = nn.RMSNorm(config.n_embd, eps=config.rms_norm_eps)
         self.mlp = FastSwiGLU(config.n_embd, config.intermediate_size, bias=False) # out = config.n_embd
 
@@ -174,51 +175,6 @@ class Block(nn.Module):
         x = x + self.self_attn(self.input_layernorm(x))
         x = x + self.mlp(self.post_attention_layernorm(x))
         return x
-
-class Attn(nn.Module): # GQA
-    def __init__(
-        self,
-        config
-    ):
-        super().__init__()
-
-        assert config.n_kv_head <= config.n_head
-        assert config.n_head % config.n_kv_head == 0
-        assert config.n_embd % config.n_head == 0
-
-        self.n_embd = config.n_embd
-        self.n_head = config.n_head
-        self.n_kv_head = config.n_kv_head
-        self.head_size = config.n_embd // config.n_head
-        
-        self.kv_size = self.n_kv_head * self.head_size
-
-        shape = (config.n_head + 2 * config.n_kv_head) * self.head_size
-
-        self.attn = nn.Linear(config.n_embd, shape, bias=False)
-
-        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=False)
-
-        self.rope = RoPE(self.head_size, config.rope_theta)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, T, C = x.size()
-
-        # create q, k, v
-        qkv = self.attn(x)
-        q, k, v = qkv.split((self.n_embd, self.kv_size, self.kv_size), dim=-1)
-
-        q = q.view(B, T, self.n_head, self.head_size).transpose(1, 2)
-        k = k.view(B, T, self.n_kv_head, self.head_size).transpose(1, 2)
-        v = v.view(B, T, self.n_kv_head, self.head_size).transpose(1, 2)
-
-        q, k = self.rope(q), self.rope(k)
-
-        out = F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=True)
-        
-        out = out.transpose(1, 2).contiguous().view(B, T, C)
-        out = self.c_proj(out) # (B, T, C)
-        return out
 
 # model = TinyLlama(TinyLlamaConfig)
 # model.half()
