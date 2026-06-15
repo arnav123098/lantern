@@ -104,7 +104,7 @@ class ShardsLoader(DataLoader):
 
         if buf is not None:
           if len(buf) < self.B * self.T + 1:
-            return None, None
+            return None, None # change this later to loop over the dataset for multiple epochs
           # make B x T tensors
           X = torch.from_numpy(buf[:-1]).view(self.B, self.T)
           Y = torch.from_numpy(buf[1:]).view(self.B, self.T)

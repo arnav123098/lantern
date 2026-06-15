@@ -40,7 +40,14 @@ class Metrics:
             metrics = [metrics]
         
         for metric in metrics:
-            plt.plot(self.get(metric), label=metric)
+            record = self.get(metric)
+
+            if isinstance(record, list):
+                for i, r in record:
+                    plt.plot(r, label=f'{metric}_{i}') 
+            else:
+                plt.plot(record, label=metric)
+
         plt.xlabel('steps')
         plt.legend()
         plt.title(title)

@@ -10,27 +10,37 @@ class Checkpoint:
         path: str,
         step: int,
         model,
-        optimizer = None,
-        dataloader = None,
+        optimizers: list | None = None,
+        dataloaders: list | None = None,
+        trainer = None,
         extra: dict | None = None
     ):
         checkpoint = {
             'step': step,
             'model': model.state_dict(),
+            'optimizers': [],
+            'dataloaders': [],
+            'trainer': None,
+            'extra': None,
             'meta': {
                 'lantern_version': '0.1.0',
                 'model_name': model.__class__.__name__
             }
         }
 
-        if optimizer is not None:
-            checkpoint['optimizer'] = optimizer.state_dict()
+        if optimizers is not None:
+            for optimizer in optimizers:
+                checkpoint['optimizers'].append(optimizer.state_dict())
 
-        if dataloader is not None:
-            checkpoint['dataloader'] = dataloader.state_dict()
+        if dataloaders is not None:
+            for dataloader in dataloaders:
+                checkpoint['dataloaders'].append(dataloader.state_dict())
+        
+        if trainer is not None:
+            checkpoint['trainer'] = trainer.state_dict()
 
         if extra is not None:
-            checkpoint['extra'] = extra.state_dict()
+            checkpoint['extra'] = extra
 
         torch.save(checkpoint, path)
 
@@ -38,18 +48,29 @@ class Checkpoint:
     def load(
         path: str,
         model,
-        optimizer = None,
-        dataloader = None
+        optimizers: list | None = None,
+        dataloaders: list | None = None,
+        trainer = None,
+        device: str = "cpu"
     ):
         
-        checkpoint = torch.load(path, map_location='cpu')
-
+        checkpoint = torch.load(path, map_location=device)
+        
         model.load_state_dict(checkpoint['model'])
 
-        if optimizer is not None and 'optimizer' in checkpoint:
-            optimizer.load_state_dict(checkpoint['optimizer'])
+        if optimizers is not None and 'optimizers' in checkpoint:
+            assert len(optimizers) == len(checkpoint['optimizers'])
 
-        if dataloader is not None and 'dataloader' in checkpoint:
-            dataloader.load_state_dict(checkpoint['dataloader'])
+            for i, optimizer in enumerate(optimizers):
+                optimizer.load_state_dict(checkpoint['optimizers'][i])
+
+        if dataloaders is not None and 'dataloaders' in checkpoint:
+            assert len(dataloaders) == len(checkpoint['dataloaders'])
+
+            for i, dataloader in enumerate(dataloaders):
+                dataloader.load_state_dict(checkpoint['dataloaders'][i])
+
+        if trainer is not None and 'trainer' in checkpoint:
+            trainer.load_state_dict(checkpoint['trainer'])
 
         return checkpoint

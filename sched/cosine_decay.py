@@ -1,10 +1,12 @@
 import math
+from lantern.sched.lr_scheduler import LRScheduler
 
 '''
 Learning rate (LR) drops slowly and smootly like cosine curve for a defined phase during learning (between warmup and max steps).
 '''
-class CosineDecay:
+class CosineDecay(LRScheduler):
     def __init__(self, max_lr: float, min_lr: float, max_steps: int, warmup_steps: int):
+        super().__init__()
         assert max_lr > min_lr, "max_lr cannot be smaller than min_lr"
         assert max_steps > warmup_steps, "max_steps cannot be smaller than warmup_steps"
 
@@ -13,19 +15,19 @@ class CosineDecay:
         self.max_steps = max_steps
         self.warmup_steps = warmup_steps
         
-    def __call__(self, it: int):
+    def get_lr(self, step: int) -> float:
         # ramp up linearly
-        if it < self.warmup_steps:
-            lr = self.max_lr * (it + 1) / self.warmup_steps
+        if step < self.warmup_steps:
+            lr = self.max_lr * (step + 1) / self.warmup_steps
             return lr
 
-        # if it's beyond max_steps, return min_lr
-        if it > self.max_steps:
+        # if step is beyond max_steps, return min_lr
+        if step > self.max_steps:
             lr = self.min_lr
             return lr
 
         # cosine decay between warmup_steps and max_steps
-        decay_ratio = (it - self.warmup_steps) / (self.max_steps - self.warmup_steps)
+        decay_ratio = (step - self.warmup_steps) / (self.max_steps - self.warmup_steps)
         decay_ratio = min(max(decay_ratio, 0), 1)
         assert 0 <= decay_ratio <= 1 # the line above holds this assertion
 

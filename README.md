@@ -10,10 +10,22 @@
 GPT2, dataloading, training, metrics and plots, checkpointing, loading weights, basic inference and hellaswag eval; long story short, a comprehensive, basic training stack. Lantern has also got many optimizer implementations including SGD (+ momentum), RMSProp, Adam, AdamW and Lion.
 
 ### v2: Llama era (ongoing)
-Tinyllama implemented and tested (RoPE, GQA and MQA), Muon and MuonW optimizers
+Tinyllama implemented and tested (RoPE, GQA and MQA), Muon and MuonW optimizers, ShardsLoader (dataloader for loading large datasets), Trainer (a big upgrade over BasicTrainer - mixed precision, multiple optims and schedulers, more robust, auto-saving etc.)
+
+## v2 TODOS:
+- [ ] ShardsLoader finishing touches
+- [ ] DDP integration
+- [ ] configure_optimizers function
+- [ ] Weight-loading utility
+- [ ] Caching (KV, RoPE etc.)
+- [ ] Profiling/Performance
+- [ ] Cleaner documentation
+
+### v2.5: Inference-focused (upcoming)
 
 ---
 ---
+### note:
 i plan to build this out slowly over a month or two <br>
 this is gonna be for my learning as well as to serve as a nice educational resource
 

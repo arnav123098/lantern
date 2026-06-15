@@ -68,10 +68,11 @@ class Optimizer(ABC): # Base class for optimizers
 
         self.param_groups.append(group)
 
-    def zero_grad(self):
+    def zero_grad(self, set_to_none: bool = False):
         for group in self.param_groups:
             for p in group['params']:
                 if p.grad is not None:
-                    p.grad.zero_()
+                    if not set_to_none: p.grad.zero_()
+                    else: p.grad = None
 
     def step(self): raise NotImplementedError
