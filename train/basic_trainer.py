@@ -59,21 +59,21 @@ class BasicTrainer:
         self.optimizer = config.model.configure_optimizers(weight_decay=config.weight_decay, learning_rate=config.min_lr, device=device)
 
         self.model = torch.compile(self.model)
-        self.get_lr = config.lr_scheduler
+        self.lr_scheduler = config.lr_scheduler
 
         self.step = 0 # step state
 
         self.metrics = Metrics()
 
     def train(self):
-        for step in range(self.config.max_steps):
+        for step in range(self.step, self.config.max_steps):
             t0 = time.time()
 
             self.optimizer.zero_grad()
 
             loss_accum = 0.0
-            val_loss_accum = 0.0
-
+            val_loss = 0.0
+            
             # simulating accum_size
             for _ in range(self.grad_accum_steps):
                 train_X, train_Y = self.train_loader.next_batch()
@@ -88,23 +88,24 @@ class BasicTrainer:
             val_step = self.is_val and step % self.val_interval == 0
 
             # validation
-            self.model.eval()
             if val_step:
+                self.model.eval()
                 with torch.no_grad():
                     val_X, val_Y = self.val_loader.next_batch()
                     val_X, val_Y = val_X.to(self.device), val_Y.to(self.device)
                     _, val_loss = self.model(val_X, targets=val_Y)
                     val_loss = val_loss.detach()
-            self.model.train()
+                self.model.train()
 
             # update params
-            if self.get_lr is not None:
-                lr = self.get_lr(step)
+            if self.lr_scheduler is not None:
+                lr = self.lr_scheduler.get_lr(step)
                 for param_group in self.optimizer.param_groups:
                     param_group['lr'] = lr
             self.optimizer.step()
 
-            torch.cuda.synchronize() # wait for the GPU to finish work
+            if self.device == "cuda":
+                torch.cuda.synchronize() # wait for the GPU to finish work
 
             self.step = step # save step state
 
@@ -122,7 +123,7 @@ class BasicTrainer:
                     'loss': lambda: loss_accum,
                     'lr': lambda: lr,
                     'norm': lambda: norm,
-                    'val_loss': lambda: val_loss_accum,
+                    'val_loss': lambda: val_loss,
                     'tokens_processed': lambda: tokens_processed,
                     'tokens_per_sec': lambda: tokens_per_sec
                 }
