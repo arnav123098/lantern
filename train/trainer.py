@@ -204,17 +204,17 @@ class Trainer:
         if self.scaler is not None and state_dict['scaler']:
             self.scaler.load_state_dict(state_dict['scaler'])
 
-    def load_checkpoint(self, path):
-      ckpt = Checkpoint.load(
-          path=path,
-          model=self.model,
-          optimizers=self.optimizers,
-          dataloaders=self.dataloaders,
-          trainer=self,
-          device=self.device
-      )
+    def load_checkpoint(self, path: str):
+        Checkpoint.load(
+            path=path,
+            model=self.model,
+            optimizers=self.optimizers,
+            dataloaders=self.dataloaders,
+            trainer=self,
+            device=self.device
+        )
 
-      print(f"Checkpoint loaded from path {path}")
+        print(f"Checkpoint loaded from path {path}")
 
     def train(self):
         for step in range(self.start_step, self.config.max_steps):
