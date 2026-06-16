@@ -218,10 +218,10 @@ class MLP(nn.Module):
         super().__init__()
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd)
         self.gelu = nn.GELU()
-        self.proj = nn.Linear(4 * config.n_embd, config.n_embd)
+        self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.c_fc(x)
         x = self.gelu(x)
-        x = self.proj(x)
+        x = self.c_proj(x)
         return x

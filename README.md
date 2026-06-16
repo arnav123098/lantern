@@ -12,12 +12,11 @@ GPT2, dataloading, training, metrics and plots, checkpointing, loading weights, 
 ### v2: Llama era (ongoing)
 Tinyllama implemented and tested (RoPE, GQA and MQA), Muon and MuonW optimizers, ShardsLoader (dataloader for loading large datasets), Trainer (a big upgrade over BasicTrainer - mixed precision, multiple optims and schedulers, more robust, auto-saving etc.)
 
-## v2 TODOS:
-- [ ] ShardsLoader finishing touches
+## TODOS:
+- [x] ShardsLoader finishing touches
 - [ ] DDP integration
-- [ ] configure_optimizers function
-- [ ] Weight-loading utility
-- [ ] Caching (KV, RoPE etc.)
+- [x] configure_optimizers function
+- [x] Weight-loading utility
 - [ ] Profiling/Performance
 - [ ] Cleaner documentation
 
