@@ -1,18 +1,14 @@
-from dataclasses import dataclass
-
 from lantern.data.load.dataloader import DataLoader
 from lantern.metrics import Metrics
 from lantern.sched.lr_scheduler import LRScheduler
+from lantern.optim.optimizer import Optimizer
 from lantern.checkpoint import Checkpoint
 
 import torch
 import torch.nn as nn
 
 from dataclasses import dataclass
-
-import torch
-import torch.nn as nn
-
+from collections.abc import Callable
 from pathlib import Path
 import time
 from typing import Literal
@@ -20,8 +16,11 @@ from typing import Literal
 @dataclass
 class TrainerConfig:
     model: nn.Module
+    optimizers: Optimizer | tuple[Optimizer, ...] | Callable # can be a function that returns configured_optimizer (i'll make a class for it later)
     train_loader: DataLoader
     max_steps: int
+
+    model_name: str | None = None
 
     accum_size: int | None = None
 
@@ -50,7 +49,7 @@ class TrainerConfig:
     autosave: bool = True
     save_path: str | None = None
 
-    seed: int = 1111
+    seed: int = 69
 
 class Trainer:
     def __init__(self, config: TrainerConfig):
@@ -94,7 +93,7 @@ class Trainer:
         self.raw_model = config.model
 
         self.model = config.model
-        self.model_name = self.model.__class__.__name__
+        self.model_name = config.model_name if config.model_name is not None else self.model.__class__.__name__
 
         self.model.to(self.device)
 
@@ -113,11 +112,11 @@ class Trainer:
         init_lr += list(fixed_lr)
         init_lr = init_lr[0] if len(init_lr) == 1 else init_lr
 
-        self.optimizers = config.model.configure_optimizers(
-            weight_decay=config.weight_decay,
-            learning_rate=init_lr,
-            device=self.device
-        )
+        self.optimizers = config.optimizers
+
+        if isinstance(self.optimizers, Callable):
+            self.optimizers = self.optimizers(weight_decay=config.weight_decay, learning_rate=init_lr, device=self.device)
+
         if not isinstance(self.optimizers, tuple):
             self.optimizers = (self.optimizers,)
 

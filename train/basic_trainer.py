@@ -14,6 +14,10 @@ BasicTrainer which is not so basic:
 - zero the grads, get loss, perform backward and update params
 - calculate val_loss if is_val is True
 - print metrics for each step
+
+Note: This trainer's foundations were inspired by Karpathy's NanoGPT so it expects the model to have a .configure_optimizers method that returns an optimizer. So if you're using this, give your model that method first.
+
+*This trainer is for educational purpose. For actual training, the Trainer class is recommended.
 '''
 class BasicTrainer:
     def __init__(self, config: dict):

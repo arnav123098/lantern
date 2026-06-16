@@ -38,9 +38,10 @@ class GPT2(nn.Module):
 
         self.apply(self._init_weights) # initialize weights as defined by the function below
 
+    '''
+    When replicating a model, it's better to get info about what stuff the original one used for initialization and then write _init_weigths in accordance with it.
+    '''
     def _init_weights(self, module: nn.Module):
-
-        # we'll have a standard deviation of 0.02 to allow a little randomness at the start
         if isinstance(module, nn.Linear):
             std = 0.02
             torch.nn.init.normal_(module.weight, mean=0.0, std=std)
@@ -101,7 +102,9 @@ class GPT2(nn.Module):
         return x
     
     '''
-    This from_pretrained method is used to load weights from a pretrained gpt2 from huggingface. This implementation closely follows Karpathy's implementation in NanoGPT. 
+    This from_pretrained method is used to load weights from a pretrained gpt2 from huggingface. This implementation closely follows Karpathy's implementation in NanoGPT.
+
+    PS: You can skip this if you don't wanna get so much hands on with weight loading. For easy weight loading, I've made a utility in Lantern.
     '''
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
@@ -163,8 +166,12 @@ class GPT2(nn.Module):
 
         return model
     
-    # same as Andrej's configure_optimizers method in nanogpt (PS: i'll make this stuff cleaner soon)
-    def configure_optimizers(self, weight_decay, learning_rate, device):
+    '''
+    # same as Andrej's configure_optimizers method in nanogpt 
+
+    PS: you can skip this as its not a part of the model but smth that'll be used in training especially with the BasicTrainer class and so i made it
+    '''
+    def configure_optimizers(self, weight_decay, learning_rate, **kwargs):
         # start with all of the candidate parameters
         param_dict = {pn: p for pn, p in self.named_parameters()}
         # filter out those that do not require grad
@@ -181,6 +188,7 @@ class GPT2(nn.Module):
         num_nodecay_params = sum(p.numel() for p in nodecay_params)
         print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
         print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
+
         from lantern.optim.adam import AdamW
         optimizer = AdamW(optim_groups, lr=learning_rate, weight_decay=weight_decay)
 
