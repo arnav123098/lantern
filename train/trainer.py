@@ -7,12 +7,17 @@ from lantern.utils import GPU_FLOPS, estimate_mfu
 
 import torch
 import torch.nn as nn
+from torch.distributed import init_process_group, destroy_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
 
 from dataclasses import dataclass
 from collections.abc import Callable
 from pathlib import Path
 import time
 from typing import Literal
+from contextlib import nullcontext
+import os
 
 @dataclass
 class TrainerConfig:
@@ -39,7 +44,7 @@ class TrainerConfig:
     mixed_precision: Literal["none", "bf16", "fp16"] = "none"
 
     device: Literal["cpu", "cuda", "mps"] | None = None
-    compile: bool = True
+    use_compile: bool = True
 
     # val setup
     is_val: bool = False
@@ -84,11 +89,38 @@ class Trainer:
             print(f"using device: {self.device} (auto-detected)")
         else:
             print(f"using device: {self.device}")
+        
+        self.device_type = self.device
+
+        # DDP setup
+        self.ddp = os.environ.get("RANK", -1) != -1
+        
+        if self.ddp:
+            assert self.device_type == "cuda", "need CUDA for DDP"
+            
+            init_process_group(backend='nccl')
+            
+            self.ddp_rank = int(os.environ['RANK'])
+            self.ddp_local_rank = int(os.environ['LOCAL_RANK'])
+            self.ddp_world_size = int(os.environ['WORLD_SIZE'])
+            
+            self.device = f'cuda:{self.ddp_local_rank}'
+            torch.cuda.set_device(self.device)
+            
+            self.master_process = self.ddp_rank == 0
+
+            if self.master_process: print(f"Using DDP | World size: {self.ddp_world_size}")
+        else:
+            self.ddp_rank = 0
+            self.ddp_local_rank = 0
+            self.ddp_world_size = 1
+            
+            self.master_process = True
 
         # seed
         self.seed = config.seed
         torch.manual_seed(self.seed)
-        if self.device == "cuda":
+        if self.device_type == "cuda":
             torch.cuda.manual_seed(self.seed)
 
         # setup model and optimizers
@@ -124,17 +156,20 @@ class Trainer:
 
         assert len(self.optimizers) == len(self.get_lr) # get_lr has functions that return lr for each optimizer at each step
 
+        # compile model to speed things up
+        if config.use_compile:
+            self.model = torch.compile(self.model)
+
+        if self.ddp:
+            self.model = DDP(self.model, device_ids=[self.ddp_local_rank])
+
         # gradient accumulation to simulate large batch size
         self.accum_size = config.accum_size if config.accum_size is not None else self.train_loader.B * self.train_loader.T
 
         assert self.accum_size % (self.train_loader.B * self.train_loader.T) == 0
 
         self.grad_accum_steps = self.accum_size // (self.train_loader.B*self.train_loader.T)
-        print(f'gradient accumulation steps: {self.grad_accum_steps}')
-
-        # compile model to speed things up
-        if config.compile:
-            self.model = torch.compile(self.model)
+        if self.master_process: print(f'gradient accumulation steps: {self.grad_accum_steps}')
 
         self.step = 0 # step state
         self.start_step = 0 # 0 or checkpoint step if resuming
@@ -165,7 +200,7 @@ class Trainer:
                 gpu_name = torch.cuda.get_device_name()
                 if gpu_name in GPU_FLOPS:
                     self.peak_flops = GPU_FLOPS[gpu_name][self.precision]
-                    print(f"detected device {gpu_name} | peak flops: {int(self.peak_flops)}")
+                    if self.master_process: print(f"detected device {gpu_name} | peak flops: {int(self.peak_flops)}")
                 else:
                     self.peak_flops = None
 
@@ -186,7 +221,7 @@ class Trainer:
                     exist_ok=True
                 )
 
-        print(f"eval: {self.is_val}")
+        if self.master_process: print(f"eval: {self.is_val}")
 
     def state_dict(self):
         return {
@@ -231,137 +266,161 @@ class Trainer:
         print(f"Checkpoint loaded from path {path}")
 
     def train(self):
-        for step in range(self.start_step, self.config.max_steps):
-            t0 = time.time()
+        try:
+            for step in range(self.start_step, self.config.max_steps):
+                t0 = time.time()
 
-            for optimizer in self.optimizers:
-                optimizer.zero_grad(set_to_none=True)
-
-            loss_accum = 0.0
-            val_loss = 0.0
-
-            # simulating accum_size
-            for _ in range(self.grad_accum_steps):
-                train_X, train_Y = self.train_loader.next_batch()
-                train_X, train_Y = train_X.to(self.device), train_Y.to(self.device)
-
-                with torch.autocast(
-                    device_type=self.device,
-                    dtype=self.autocast_dtype,
-                    enabled=self.is_autocast
-                ):
-                    _, loss = self.model(train_X, targets=train_Y)
-                    loss /= self.grad_accum_steps # divide to get correct loss for simulated larger batch size
-
-                loss_accum += loss.detach().float() # accumulate losses in float to prevent error stacking up due to lost precision
-
-                if self.scaler is None:
-                    loss.backward()
-                else:
-                    self.scaler.scale(loss).backward()
-
-            if self.scaler is not None:
                 for optimizer in self.optimizers:
-                    self.scaler.unscale_(optimizer)
+                    optimizer.zero_grad(set_to_none=True)
 
-            norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                loss_accum = 0.0
+                val_loss = 0.0
 
-            # validation
-            val_step = self.is_val and step % self.val_interval == 0
-
-            if val_step:
-                self.model.eval()
-                with torch.no_grad():
-                    val_X, val_Y = self.val_loader.next_batch()
-                    val_X, val_Y = val_X.to(self.device), val_Y.to(self.device)
+                # simulating accum_size
+                for _ in range(self.grad_accum_steps):
+                    train_X, train_Y = self.train_loader.next_batch()
+                    train_X, train_Y = train_X.to(self.device), train_Y.to(self.device)
 
                     with torch.autocast(
-                        device_type=self.device,
+                        device_type=self.device_type,
                         dtype=self.autocast_dtype,
                         enabled=self.is_autocast
                     ):
-                        _, val_loss = self.model(val_X, targets=val_Y)
+                        _, loss = self.model(train_X, targets=train_Y)
+                        loss /= self.grad_accum_steps # divide to get correct loss for simulated larger batch size
 
-                    val_loss = val_loss.detach().float()
+                    loss_accum += loss.detach().float() # accumulate losses in float to prevent error stacking up due to lost precision
 
-                self.model.train()
+                    if self.ddp:
+                        ctx = self.model.no_sync()
+                    else:
+                        ctx = nullcontext()
 
-            # optimizer step
-            lr = [lr(step) for lr in self.get_lr]
-            for optimizer, optim_lr in zip(self.optimizers, lr):
-                for param_group in optimizer.param_groups:
-                        param_group['lr'] = optim_lr
+                    with ctx:
+                        if self.scaler is None:
+                            loss.backward()
+                        else:
+                            self.scaler.scale(loss).backward()
+                        
+                if self.ddp:
+                        loss_accum = torch.tensor(loss_accum, device=self.device)
+                        dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
+                        loss_accum = loss_accum.item()
+                    
+                if self.scaler is not None:
+                    for optimizer in self.optimizers:
+                        self.scaler.unscale_(optimizer)
 
-                if self.scaler is None:
-                    optimizer.step()
-                else:
-                    self.scaler.step(optimizer)
+                norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
 
-            # update scaler
-            if self.scaler is not None:
-                self.scaler.update()
+                # validation
+                val_step = self.is_val and step % self.val_interval == 0
 
-            if self.device == "cuda":
-                torch.cuda.synchronize() # wait for the GPU to finish work
+                if val_step:
+                    self.model.eval()
+                    try:
+                        with torch.no_grad():
+                            val_X, val_Y = self.val_loader.next_batch()
+                            val_X, val_Y = val_X.to(self.device), val_Y.to(self.device)
+        
+                            with torch.autocast(
+                                device_type=self.device_type,
+                                dtype=self.autocast_dtype,
+                                enabled=self.is_autocast
+                            ):
+                                _, val_loss = self.model(val_X, targets=val_Y)
+        
+                            val_loss = val_loss.detach().float()
+        
+                        if self.ddp:
+                            val_loss_accum = torch.tensor(val_loss_accum, device=self.device)
+                            dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
+                            val_loss_accum = val_loss_accum.item()
+                    finally:
+                        self.model.train()
 
-            self.step = step + 1 # save step state
+                # optimizer step
+                lr = [lr(step) for lr in self.get_lr]
+                for optimizer, optim_lr in zip(self.optimizers, lr):
+                    for param_group in optimizer.param_groups:
+                            param_group['lr'] = optim_lr
 
-            # metrics
-            t1 = time.time()
-            dt = t1 - t0
-            tokens_processed = self.train_loader.B * self.train_loader.T * self.grad_accum_steps
-            if val_step:
-              val_tokens_processed = self.val_loader.B * self.val_loader.T
-              tokens_processed += val_tokens_processed
+                    if self.scaler is None:
+                        optimizer.step()
+                    else:
+                        self.scaler.step(optimizer)
+
+                # update scaler
+                if self.scaler is not None:
+                    self.scaler.update()
+
+                if self.device == "cuda":
+                    torch.cuda.synchronize() # wait for the GPU to finish work
+
+                self.step = step + 1 # save step state
+
+                # metrics
+                t1 = time.time()
+                dt = t1 - t0
+                tokens_processed = self.train_loader.B * self.train_loader.T * self.grad_accum_steps * self.ddp_world_size
+                if val_step:
+                    val_tokens_processed = self.val_loader.B * self.val_loader.T * self.ddp_world_size
+                    tokens_processed += val_tokens_processed
+                    
+                tokens_per_sec = tokens_processed / dt
+
+                mfu_estimate = None
+                if self.peak_flops is not None:
+                    mfu_estimate = estimate_mfu(model=self.model, tokens_per_sec=tokens_per_sec, precision=self.precision, peak_flops=self.peak_flops)
+                elif step == 0:
+                    if self.master_process:
+                        print("Skipping mfu estimate as peak_flops cannot be calculated. Consider providing it explictly if you want mfu calculation.")
                 
-            tokens_per_sec = tokens_processed / dt
-
-            mfu_estimate = None
-            if self.peak_flops is not None:
-                mfu_estimate = estimate_mfu(model=self.model, tokens_per_sec=tokens_per_sec, precision=self.precision, peak_flops=self.peak_flops)
-            elif step == 0:
-                print("Skipping mfu estimate as peak_flops cannot be calculate. Consider providing it explictly if you want mfu calculation.")
-                
-            if step == self.start_step: # register variables to track
-                variables = {
-                    'loss': lambda: loss_accum,
-                    'lr': lambda: lr,
-                    'norm': lambda: norm,
-                    'tokens_processed': lambda: tokens_processed,
-                    'tokens_per_sec': lambda: tokens_per_sec,
-                    'dt': lambda: dt,
-                    'mfu_estimate': lambda: mfu_estimate,
-                    'sys': lambda: None # metrics tracks sys internally
-                }
-
-                if self.config.metrics is not None:
-                    self.metrics.track({
-                        k: v
-                        for k, v in variables.items()
-                        if k in self.config.metrics
-                    })
-
-                if self.config.extra_metrics is not None:
-                    self.metrics.track(self.config.extra_metrics)
-
-            self.metrics.record() # record metrics
-
-            # auto-save checkpoint
-            save_step = self.autosave and (self.step % self.n_save_steps == 0 or self.step == self.config.max_steps)
-            print(f"step {step:4d} || loss: {loss_accum:.6f} | {f'val_loss: {val_loss:.6f} |' if val_step else ''}lr: {lr[0] if len(lr) == 1 else lr} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
-
-            if save_step:
-                print(f'Saving checkpoint for: {self.step} steps')
-
-                path = f'{self.save_path}__{self.step}_steps.pt'
-
-                Checkpoint.save(
-                    path=path,
-                    step=self.step,
-                    model=self.raw_model,
-                    optimizers=self.optimizers,
-                    dataloaders=self.dataloaders,
-                    trainer=self
-                )
-
-                print(f'Checkpoint saved at {path}')
+                if self.master_process:
+                    if step == self.start_step: # register variables to track
+                        variables = {
+                            'loss': lambda: loss_accum,
+                            'lr': lambda: lr,
+                            'norm': lambda: norm,
+                            'tokens_processed': lambda: tokens_processed,
+                            'tokens_per_sec': lambda: tokens_per_sec,
+                            'dt': lambda: dt,
+                            'mfu_estimate': lambda: mfu_estimate,
+                            'sys': lambda: None # metrics tracks sys internally
+                        }
+        
+                        if self.config.metrics is not None:
+                            self.metrics.track({
+                                k: v
+                                for k, v in variables.items()
+                                if k in self.config.metrics
+                            })
+        
+                        if self.config.extra_metrics is not None:
+                            self.metrics.track(self.config.extra_metrics)
+        
+                    self.metrics.record() # record metrics
+        
+                    # auto-save checkpoint
+                    save_step = self.autosave and (self.step % self.n_save_steps == 0 or self.step == self.config.max_steps)
+                    print(f"step {step:4d} || loss: {loss_accum:.6f} | {f'val_loss: {val_loss:.6f} |' if val_step else ''}lr: {lr[0] if len(lr) == 1 else lr} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
+        
+                    if save_step:
+                        print(f'Saving checkpoint for: {self.step} steps')
+        
+                        path = f'{self.save_path}__{self.step}_steps.pt'
+        
+                        Checkpoint.save(
+                            path=path,
+                            step=self.step,
+                            model=self.raw_model,
+                            optimizers=self.optimizers,
+                            dataloaders=self.dataloaders,
+                            trainer=self
+                        )
+        
+                        print(f'Checkpoint saved at {path}')
+        finally:
+            if self.ddp:
+                destroy_process_group()
+            print("Training run stopped")
