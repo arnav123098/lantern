@@ -92,3 +92,34 @@ def load_weights(to_model: nn.Module, from_model: nn.Module, map: dict | None = 
       to_sd[k].copy_(from_sd[key])
 
   print('Weights loaded successfully!')
+
+GPU_FLOPS = {
+    "Tesla T4": {
+        "fp32": 8.1e12,
+        "fp16": 65e12
+    },
+    "A100-SXM4-40GB": {
+        "fp32": 19.5e12,
+        "tf32": 156e12,
+        "fp16": 312e12,
+        "bf16": 312e12,
+    },
+}
+
+def estimate_mfu(model: nn.Module, tokens_per_sec: float | int | None = None, tokens_processed: float | int | None = None, dt: float | int | None = None, precision: str = 'fp32',gpu_name: str | None = None, peak_flops: float | int | None = None):
+    assert gpu_name is not None or peak_flops is not None, "Any one of gpu_name and peak_flops is required"
+    assert tokens_per_sec is not None or all([tokens_processed is not None, dt is not None])
+    
+    if peak_flops is None:
+        assert gpu_name in GPU_FLOPS, f"No info about {gpu_name}'s promised flops"
+        assert precision in GPU_FLOPS[gpu_name]
+        
+        peak_flops = GPU_FLOPS[gpu_name][precision]
+
+    if tokens_per_sec is None:
+        tokens_per_sec = tokens_processed / dt
+        
+    n_params = sum(p.numel() for p in model.parameters())
+    estimated_flops = (6 * n_params) * tokens_per_sec
+    mfu = estimated_flops / peak_flops
+    return mfu

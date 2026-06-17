@@ -3,6 +3,7 @@ from lantern.metrics import Metrics
 from lantern.sched.lr_scheduler import LRScheduler
 from lantern.optim.optimizer import Optimizer
 from lantern.checkpoint import Checkpoint
+from lantern.utils import GPU_FLOPS, estimate_mfu
 
 import torch
 import torch.nn as nn
@@ -26,6 +27,7 @@ class TrainerConfig:
 
     metrics: list | None = None
     extra_metrics: dict | None = None
+    peak_flops: float | int | None = None # for mfu
 
     weight_decay: float = 0.0
 
@@ -145,14 +147,27 @@ class Trainer:
         if config.mixed_precision == "bf16":
             self.autocast_dtype = torch.bfloat16
             self.scaler = None
+            self.precision = "bf16"
         elif config.mixed_precision == "fp16":
             self.autocast_dtype = torch.float16
             self.scaler = torch.amp.GradScaler(self.device)
+            self.precision = "fp16"
         else:
             self.autocast_dtype = None
             self.scaler = None
+            self.precision = "fp32"
 
         self.is_autocast = self.autocast_dtype is not None and self.device != "cpu"
+
+        self.peak_flops = config.peak_flops
+        if config.peak_flops is None:
+            if self.device == "cuda":
+                gpu_name = torch.cuda.get_device_name()
+                if gpu_name in GPU_FLOPS:
+                    self.peak_flops = GPU_FLOPS[gpu_name][self.precision]
+                    print(f"detected device {gpu_name} | peak flops: {int(self.peak_flops)}")
+                else:
+                    self.peak_flops = None
 
         # auto-saving checkpoints
         self.n_save_steps = config.n_save_steps
@@ -298,15 +313,25 @@ class Trainer:
             if val_step:
               val_tokens_processed = self.val_loader.B * self.val_loader.T
               tokens_processed += val_tokens_processed
+                
             tokens_per_sec = tokens_processed / dt
 
+            mfu_estimate = None
+            if self.peak_flops is not None:
+                mfu_estimate = estimate_mfu(model=self.model, tokens_per_sec=tokens_per_sec, precision=self.precision, peak_flops=self.peak_flops)
+            elif step == 0:
+                print("Skipping mfu estimate as peak_flops cannot be calculate. Consider providing it explictly if you want mfu calculation.")
+                
             if step == self.start_step: # register variables to track
                 variables = {
                     'loss': lambda: loss_accum,
                     'lr': lambda: lr,
                     'norm': lambda: norm,
                     'tokens_processed': lambda: tokens_processed,
-                    'tokens_per_sec': lambda: tokens_per_sec
+                    'tokens_per_sec': lambda: tokens_per_sec,
+                    'dt': lambda: dt,
+                    'mfu_estimate': lambda: mfu_estimate,
+                    'sys': lambda: None # metrics tracks sys internally
                 }
 
                 if self.config.metrics is not None:
@@ -323,7 +348,6 @@ class Trainer:
 
             # auto-save checkpoint
             save_step = self.autosave and (self.step % self.n_save_steps == 0 or self.step == self.config.max_steps)
-
             print(f"step {step:4d} || loss: {loss_accum:.6f} | {f'val_loss: {val_loss:.6f} |' if val_step else ''}lr: {lr[0] if len(lr) == 1 else lr} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
 
             if save_step:
