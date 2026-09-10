@@ -5,8 +5,6 @@ from threading import RLock
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# TODO: make download_dataset async
-# also, it looks more like a file manager, so i guess i'll separate concerns later
 '''
 This class is really helpful for dataloaders as they need the dataset to be downloaded before loading tensors.
 There are some really simple methods implemented using the Path lib and the most important one i.e. download is the one we need to pay attention to.

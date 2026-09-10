@@ -16,6 +16,7 @@ class ShardsLoader(DataLoader):
         split: list[str],
         repo_id: str,
         tokenizer: Tokenizer,
+        tok_batch_size: int = 256, # doesn't matter if tokenizer.has_batch_encoding is False
         rank: int = 0,
         world_size: int = 1
     ):
@@ -40,9 +41,8 @@ class ShardsLoader(DataLoader):
         self.tokenizer = tokenizer
 
         self.eos = self.tokenizer.eos_token_id
-        if self.eos is None: self.eos = self.tokenizer.encode('\n\n')[0] # fallback to newlines
 
-        self.tokenize_shards()
+        self.tokenize_shards(tok_batch_size if self.tokenizer.has_batch_encoding else 1)
 
         self.epoch = 0
 
@@ -54,29 +54,38 @@ class ShardsLoader(DataLoader):
 
         self.state_keys = ('ptr', 'shard_ptr', 'epoch', 'tokenized_shards')
 
-    def tokenize_shards(self):
+    def tokenize_shards(self, tok_batch_size):
         for shard, tokenized_path in zip(self.shards, self.tokenized_shards):
           if self.datasets.exists(tokenized_path): continue
 
+          print(f'Tokenizing shard: {shard}')
+
           pfile = pq.ParquetFile(shard)
 
-          for rg in range(pfile.num_row_groups):
-            tokens = []
-            text_content = pfile.read_row_group(rg, columns=['text'])['text']
-            for text in text_content:
-              ids = self.tokenizer.encode(
-                      text.as_py()
-              )
+          encode = self.tokenizer.encode_batch if self.tokenizer.has_batch_encoding else self.tokenizer.encode
 
-              ids.append(self.eos)
+          with open(tokenized_path, 'wb') as f:
+            for rg in range(pfile.num_row_groups):
+              text_content = pfile.read_row_group(rg, columns=['text'])['text']
 
-              tokens.extend(ids)
+              for i in range(0, len(text_content), tok_batch_size):
+                batch = [
+                          text.as_py()
+                          for text in text_content[i:i + tok_batch_size]
+                      ]
+      
+                encoded = encode(batch[0] if tok_batch_size == 1 else batch)
 
-            tokens = np.array(tokens, dtype=np.uint32)
+                tokens = []
 
-            with open(tokenized_path, 'ab') as f:
-              tokens.tofile(f)
+                for ids in encoded:
+                    ids = list(ids)
+                    if self.eos is not None:
+                      ids.append(self.eos)
+                    tokens.extend(ids)
 
+                np.asarray(tokens, dtype=np.uint32).tofile(f)
+                    
         print('Shards tokenized successfully')
 
     def _next_shard(self):
@@ -89,14 +98,22 @@ class ShardsLoader(DataLoader):
             np.random.shuffle(self.tokenized_shards)
 
         self.shard_ptr = self.shard_ptr % self.n_shards
-        self.curr_shard_tokens = np.fromfile(self.tokenized_shards[self.shard_ptr], dtype=np.uint32)
+        self.curr_shard_tokens = np.memmap(
+            self.tokenized_shards[self.shard_ptr],
+            dtype=np.uint32,
+            mode='r'
+        )
 
     def next_batch(self) -> tuple[torch.Tensor, torch.Tensor] | tuple[None, None]:
         if self.curr_shard_tokens is None:
-           self.curr_shard_tokens = np.fromfile(self.tokenized_shards[self.shard_ptr], dtype=np.uint32)
+            self.curr_shard_tokens = np.memmap(
+                self.tokenized_shards[self.shard_ptr],
+                dtype=np.uint32,
+                mode='r'
+            )
 
         assert len(self.curr_shard_tokens) > self.B * self.T * self.rank
-        
+
         buf_parts = []
         needed = self.B * self.T + 1
 
@@ -106,7 +123,7 @@ class ShardsLoader(DataLoader):
             if available <= 0:
                 self._next_shard()
                 continue
-            
+
             take = min(needed, available)
 
             buf_parts.append(
@@ -117,7 +134,7 @@ class ShardsLoader(DataLoader):
             needed -= take
 
         buf = np.concatenate(buf_parts, dtype=np.uint32)
-        
+
         self.ptr += self.B * self.T * (self.world_size - 1)
 
         assert len(buf) == self.B * self.T + 1

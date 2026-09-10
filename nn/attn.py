@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from lantern.utils import dotdict
 
 # SelfAttn and MultiHeadAttn are GPT 2 and 3 style
 '''
@@ -16,7 +15,7 @@ Self attention mechanism allow tokens to talk to each other using query (q), key
 class SelfAttn(nn.Module):
     def __init__(
         self,
-        config: dotdict,
+        config,
         is_causal: bool = False
     ):
         super().__init__()
@@ -56,7 +55,7 @@ Multi Head Attn (MHA) is the same self attention mechanism but now there are man
 class MultiHeadAttn(nn.Module):
     def __init__(
         self,
-        config: dotdict,
+        config,
         is_causal: bool = False
     ):
         super().__init__()
@@ -75,7 +74,7 @@ class MultiHeadAttn(nn.Module):
 
         self.is_causal = is_causal
 
-    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, kv_cache = None, layer_idx = None, attn_mask: torch.Tensor = None) -> torch.Tensor:
         B, T, C = x.size()
 
         head_size = C // self.n_head
@@ -87,6 +86,10 @@ class MultiHeadAttn(nn.Module):
         q = q.view(B, T, self.n_head, head_size).transpose(1, 2)
         k = k.view(B, T, self.n_head, head_size).transpose(1, 2)
         v = v.view(B, T, self.n_head, head_size).transpose(1, 2)
+
+        if kv_cache is not None:
+            kv_cache.store(layer_idx, k, v)
+            k, v = kv_cache.get(layer_idx)
 
         # raw attn scores
         '''
@@ -103,7 +106,7 @@ class MultiHeadAttn(nn.Module):
 
         instead there's a better way -'''
 
-        out = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal, attn_mask=attn_mask) # (B, n_head, T, head_size)
+        out = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal if attn_mask is None else False, attn_mask=attn_mask) # (B, n_head, T, head_size)
         out = out.transpose(1, 2).contiguous().view(B, T, C)
         out = self.c_proj(out) # (B, T, C)
         return out
@@ -116,7 +119,7 @@ GQA with a setting like n_kv_head = 8 for 32 query heads can be a nice tradeoff 
 class GroupedQueryAttn(nn.Module):
     def __init__(
         self,
-        config: dotdict,
+        config,
         is_causal: bool = False,
         pos_emb = None
     ):

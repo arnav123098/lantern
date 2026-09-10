@@ -1,9 +1,11 @@
 from lantern.eval.benchmark import Benchmark
 from lantern.data.load.hellaswag_loader import HellaswagLoader
 from lantern.utils import dotdict
+
 import torch.nn.functional as F
 import torch
 
+from tqdm import tqdm
 '''
 This hellaswag evaluator uses our HellaswagLoader to load batches of questions and evaluate the model.
 What this does:
@@ -11,8 +13,6 @@ What this does:
 - calculate loss (reduction='none')
 - apply completion mask
 - get the lowest loss and calculate accuracy
-
-TODO (for later): attn_mask, progress bar
 '''
 class Hellaswag(Benchmark):
     def __init__(self, config: dotdict):
@@ -23,8 +23,10 @@ class Hellaswag(Benchmark):
     @torch.no_grad()
     def evaluate(self) -> float:
         self.model.eval()
-
         acc = 0
+
+        pbar = tqdm(total=len(self.loader), desc="Evaluating HellaSwag")
+
         while True:
             batch = self.loader.next_batch()
             if batch is None: break
@@ -57,6 +59,10 @@ class Hellaswag(Benchmark):
             preds = avg_losses.argmin(dim=-1) # (B)
 
             acc += (preds == Y).sum().item()
+
+            pbar.update(1)
+
+        pbar.close()
 
         accuracy = acc / len(self.loader)
         return accuracy

@@ -59,6 +59,7 @@ class GPT2(nn.Module):
         idx: torch.Tensor, # idx is B x T
         targets: torch.Tensor = None,
         attn_mask: torch.Tensor = None,
+        kv_cache = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         T = idx.size(-1)
         assert T <= self.config.block_size, f"Cannot forward sequence of long length {T} while block size is only {self.config.block_size}"
@@ -68,8 +69,15 @@ class GPT2(nn.Module):
         tok_emb = self.transformer.wte(idx)
         x = pos_emb + tok_emb
 
-        for h in self.transformer.h:
-            x = h(x, attn_mask)
+        if kv_cache is not None:
+            kv_cache.reset()
+
+        for i, h in enumerate(self.transformer.h):
+            x = h(x, kv_cache=kv_cache, layer_idx=i, attn_mask=attn_mask)
+
+        if kv_cache is not None:
+            kv_cache.advance(T)
+        
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x) # (B, T, vocab_size)
 
@@ -169,7 +177,7 @@ class GPT2(nn.Module):
     '''
     # same as Andrej's configure_optimizers method in nanogpt 
 
-    PS: you can skip this as its not a part of the model but smth that'll be used in training especially with the BasicTrainer class and so i made it
+    PS: you can skip this as it is not a part of the model but smth that'll be used in training with the BasicTrainer class and so i made it
     '''
     def configure_optimizers(self, weight_decay, learning_rate, **kwargs):
         # start with all of the candidate parameters
@@ -205,11 +213,11 @@ class Block(nn.Module):
         self.ln_2 = nn.LayerNorm(config.n_embd)
         self.mlp = MLP(config)
 
-    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None) -> torch.Tensor:
-        x = x + self.attn(self.ln_1(x), attn_mask) # we are using pre-layer-norm here
+    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None, kv_cache = None, layer_idx = None) -> torch.Tensor:
+        x = x + self.attn(self.ln_1(x), attn_mask=attn_mask, kv_cache=kv_cache, layer_idx=layer_idx) # we are using pre-layer-norm here
         x = x + self.mlp(self.ln_2(x))
         return x
-    
+
 '''
 A straightforward and simple feed-forward layer that follows attn
 '''

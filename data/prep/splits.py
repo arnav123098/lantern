@@ -14,7 +14,7 @@ def split_text(filepath: str | Path, tokenizer: Tokenizer, val_split_size: float
 
     return train, val
 
-def split_shards(dataset_path: str | Path, tokenizer: Tokenizer, val_split_size: float) -> tuple[list[str], list[str]]:
+def split_shards(dataset_path: str | Path, val_split_size: float) -> tuple[list[str], list[str]]:
     shards = datasets.get_files(dataset_path)
 
     n_train = int(len(shards) * (1 - val_split_size))
