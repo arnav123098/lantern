@@ -1,4 +1,6 @@
 # DEEPSEEK V2 (replicating shibatch deepseek v2 3m)
+# https://huggingface.co/shibatch/tinydeepseekv2-3m
+
 import math
 from dataclasses import dataclass
 from nn.models.model import Model
