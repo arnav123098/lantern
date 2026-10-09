@@ -89,7 +89,7 @@ class MultiHeadAttn(nn.Module):
 
         if kv_cache is not None:
             kv_cache.store(layer_idx, k, v)
-            k, v = kv_cache.get(layer_idx)
+            k, v = kv_cache.get(layer_idx, T)
 
         # raw attn scores
         '''

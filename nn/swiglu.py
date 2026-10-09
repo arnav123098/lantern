@@ -18,14 +18,14 @@ class SwiGLU(nn.Module):
     def __init__(
         self,
         fan_in: int,
-        fan_out: int,
+        intermediate: int,
         bias: bool = False
     ):
         super().__init__()
 
-        self.gate_proj = nn.Linear(fan_in, fan_out, bias)
-        self.value_proj = nn.Linear(fan_in, fan_out, bias)
-        self.out_proj = nn.Linear(fan_out, fan_in, bias)
+        self.gate_proj = nn.Linear(fan_in, intermediate, bias)
+        self.value_proj = nn.Linear(fan_in, intermediate, bias)
+        self.out_proj = nn.Linear(intermediate, fan_in, bias)
 
     def forward(self, x: torch.Tensor):
         x = F.silu(self.gate_proj(x)) * self.value_proj(x) # SILU is the Swish function
@@ -38,13 +38,13 @@ class FastSwiGLU(nn.Module):
     def __init__(
         self,
         fan_in: int,
-        fan_out: int,
+        intermediate: int,
         bias: bool = False
     ):
         super().__init__()
 
-        self.gatexvalue = nn.Linear(fan_in, 2 * fan_out, bias)
-        self.out_proj = nn.Linear(fan_out, fan_in, bias)
+        self.gatexvalue = nn.Linear(fan_in, 2 * intermediate, bias)
+        self.out_proj = nn.Linear(intermediate, fan_in, bias)
 
     def forward(self, x: torch.Tensor):
         gate, value = self.gatexvalue(x).chunk(2, dim=-1)

@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from inference.kv_cache import KVCache
+from inference.cache import KVCache
 
 # TODO: optimizations for later, cleanups and documentation
 

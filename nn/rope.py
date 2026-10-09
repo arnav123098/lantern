@@ -27,16 +27,17 @@ class RoPE(nn.Module):
         self.rope_theta = rope_theta
 
         self.llama_style = llama_style
-    
+
     def get_theta(
         self,
         seq_len: int, # T
-        device
+        device,
+        start_pos: int = 0
     ):
         inv_freq = 1 / (
             self.rope_theta ** (torch.arange(0, self.head_size, 2, device=device).float() / self.head_size)
         ) # (hs // 2,)
-        pos = torch.arange(seq_len, device=device) # (T,)
+        pos = torch.arange(start_pos, start_pos + seq_len, device=device) # (T,)
 
         theta = torch.outer(pos, inv_freq) # (T, hs // 2)
         return theta
@@ -48,24 +49,14 @@ class RoPE(nn.Module):
         cos: torch.Tensor
     ):
         if self.llama_style:
-            '''
-            In the Llama style implementation, we split the features into two parts and then concat them as pairs of (-x2, x1).
-            This looks like [-x3, -x4, x1, x2].
-            Let's call this tensor y.
-            Then we can element-wise multiply x by cos and y by sin and add them.
-            This results in the same tensor as in the case of multiplying each pair by the rotation matrix.
-            '''
-            x1 = x[..., : self.head_size // 2] # [x3, x4] (B, nh, T, hs // 2)
-            x2 = x[..., self.head_size // 2 :] # [x1, x2] (B, nh, T, hs // 2)
-            
+            x1 = x[..., : self.head_size // 2] # [x1, x2] (B, nh, T, hs // 2)
+            x2 = x[..., self.head_size // 2 :] # [x3, x4] (B, nh, T, hs // 2)
+
             rotated = torch.cat((-x2, x1), dim=-1) # [-x3, -x4, x1, x2] (B, nh, T, hs)
             rotated = x * cos + rotated * sin # (B, nh, T, hs)
 
             return rotated
         else:
-            '''
-            In other models like GPTNeoX, y looks like [-x2, x1, -x4, x3]. The math is identical. This difference in Llama is just because of lineage.
-            '''
             x1 = x[..., 1::2]
             x2 = x[..., ::2]
 
@@ -74,15 +65,20 @@ class RoPE(nn.Module):
 
             return rotated
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, start_pos=0):
         device = x.device
         dtype = x.dtype
 
         seq_len = x.shape[-2]
 
-        theta = self.get_theta(seq_len, device).to(dtype=dtype)
+        theta = self.get_theta(seq_len, device, start_pos).to(dtype=dtype)
         sin, cos = theta.sin(), theta.cos() # (T, hs // 2)
-        cos = torch.cat([cos, cos], dim=-1)
-        sin = torch.cat([sin, sin], dim=-1) # (T, hs)
+
+        if self.llama_style:
+            cos = torch.cat([cos, cos], dim=-1)
+            sin = torch.cat([sin, sin], dim=-1) # (T, hs)
+        else:
+            cos = torch.stack([cos, cos], dim=-1).flatten(-2)
+            sin = torch.stack([sin, sin], dim=-1).flatten(-2)
 
         return self.apply_rope(x, sin, cos) # (B, nh, T, hs)
