@@ -21,7 +21,6 @@ MLA, MoE, DeepseekV2, Shibatch DeepseekV2 (close enough) and loaded weights
 <br><br>
 
 ---
----
 ### note (from summer 2026 - when i started this):
 i plan to build this out slowly over a month or two <br>
 this is gonna be for my learning as well as to serve as a nice educational resource
